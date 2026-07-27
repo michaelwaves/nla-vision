@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NLA patch explanations</title>
+<style>
+  :root {
+    --surface:#fcfcfb; --panel:#f9f9f7; --ink:#0b0b0b; --ink2:#52514e;
+    --muted:#898781; --border:rgba(11,11,11,0.12);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --surface:#1a1a19; --panel:#0d0d0d; --ink:#fff; --ink2:#c3c2b7;
+            --muted:#898781; --border:rgba(255,255,255,0.14); }
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--panel); color:var(--ink);
+         font-family:system-ui,-apple-system,"Segoe UI",sans-serif; }
+  .app { max-width:1000px; margin:0 auto; padding:22px; }
+  header { display:flex; align-items:flex-start; gap:16px; flex-wrap:wrap; margin-bottom:14px; }
+  h1 { font-size:18px; margin:0 0 3px; font-weight:650; }
+  .sub { color:var(--ink2); font-size:13px; }
+  .controls { margin-left:auto; display:flex; gap:10px; }
+  .toggle { display:flex; align-items:center; gap:7px; font-size:14px; cursor:pointer;
+            background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:7px 11px; }
+  .stage { position:relative; display:inline-block; border:1px solid var(--border);
+           border-radius:10px; overflow:hidden; background:var(--surface); line-height:0; }
+  .stage img { display:block; width:100%; max-width:680px; }
+  #grid { position:absolute; inset:0; }
+  .cell { position:absolute; }
+  .cell.decoded { outline:2px solid rgba(255,255,255,0.9); outline-offset:-2px; }
+  .cell .dot { position:absolute; top:2px; left:3px; width:6px; height:6px; border-radius:50%;
+               background:#fff; box-shadow:0 0 2px #000; }
+  body.nomark .cell.decoded { outline:none; }
+  body.nomark .cell .dot { display:none; }
+  .legend { margin-top:14px; display:flex; align-items:center; gap:10px; font-size:12px; color:var(--ink2); }
+  .bar { height:12px; width:220px; border-radius:6px; border:1px solid var(--border);
+         background:linear-gradient(90deg,#cde2fb,#3987e5,#0d366b); }
+  .tag { margin-left:6px; }
+  .tooltip { position:fixed; z-index:10; max-width:360px; pointer-events:none;
+             background:var(--surface); color:var(--ink); border:1px solid var(--border);
+             border-radius:9px; padding:10px 12px; font-size:13px; line-height:1.45;
+             box-shadow:0 8px 28px rgba(0,0,0,0.30); }
+  .tooltip .meta { color:var(--muted); font-size:11px; margin-bottom:4px;
+                   text-transform:uppercase; letter-spacing:.04em; font-variant-numeric:tabular-nums; }
+  .tooltip .none { color:var(--muted); font-style:italic; }
+</style>
+</head>
+<body>
+  <div class="app">
+    <header>
+      <div>
+        <h1>NLA patch explanations</h1>
+        <div class="sub">Hover a patch for its explanation · heatmap shades each image token by its L2 norm.</div>
+      </div>
+      <div class="controls">
+        <label class="toggle"><input type="checkbox" id="heatToggle" checked> Heatmap</label>
+        <label class="toggle"><input type="checkbox" id="markToggle" checked> Markers</label>
+      </div>
+    </header>
+    <div class="stage">
+      <img src="__IMAGE_SRC__" alt="input image">
+      <div id="grid"></div>
+    </div>
+    <div class="legend">
+      <span>low norm</span><div class="bar"></div><span>high norm</span>
+      <span class="tag">◦ dot / outline = decoded patch</span>
+    </div>
+  </div>
+  <div class="tooltip" id="tooltip" hidden></div>
+<script>
+const DATA = __PAYLOAD__;
+const grid = document.getElementById('grid'), tip = document.getElementById('tooltip');
+const side = DATA.grid_side, ramp = DATA.ramp;
+const rampColor = t => ramp[Math.min(ramp.length - 1, Math.floor(t * ramp.length))];
+
+for (const tok of DATA.tokens) {
+  const c = document.createElement('div');
+  c.className = 'cell' + (tok.text ? ' decoded' : '');
+  c.style.left = (tok.col / side * 100) + '%';
+  c.style.top = (tok.row / side * 100) + '%';
+  c.style.width = (100 / side) + '%';
+  c.style.height = (100 / side) + '%';
+  c.dataset.i = tok.index;
+  c.dataset.color = rampColor(tok.t);
+  c.dataset.opacity = (0.12 + 0.62 * tok.t).toFixed(3);
+  if (tok.text) { const d = document.createElement('div'); d.className = 'dot'; c.appendChild(d); }
+  grid.appendChild(c);
+}
+
+// One delegated listener. Moving between cells only updates the tooltip; it is
+// hidden only when the pointer leaves the whole grid. Per-cell mouseleave (hide)
+// + next-cell mousemove (show) at every boundary was the black flicker.
+let shownIndex = -1, tipWidth = 0, tipHeight = 0;
+grid.addEventListener('mousemove', e => {
+  const cell = e.target.closest('.cell');
+  if (!cell) return;
+  const tok = DATA.tokens[+cell.dataset.i];
+  if (tok.index !== shownIndex) {
+    shownIndex = tok.index;
+    tip.hidden = false;
+    tip.innerHTML = `<div class="meta">patch ${tok.index} · row ${tok.row}, col ${tok.col} · norm ${tok.norm.toLocaleString()}</div>`
+      + (tok.text ? escapeHtml(tok.text) : '<span class="none">not decoded</span>');
+    tipWidth = tip.offsetWidth; tipHeight = tip.offsetHeight;  // measure once per token, not per pixel
+  }
+  const pad = 14;
+  let x = e.clientX + pad, y = e.clientY + pad;
+  if (x + tipWidth > innerWidth) x = e.clientX - tipWidth - pad;
+  if (y + tipHeight > innerHeight) y = e.clientY - tipHeight - pad;
+  tip.style.left = x + 'px'; tip.style.top = y + 'px';
+});
+grid.addEventListener('mouseleave', () => { tip.hidden = true; shownIndex = -1; });
+
+function applyHeat(on) {
+  for (const c of grid.children) {
+    c.style.backgroundColor = on ? c.dataset.color : 'transparent';
+    c.style.opacity = on ? c.dataset.opacity : '1';
+  }
+}
+function escapeHtml(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+document.getElementById('heatToggle').addEventListener('change', e => applyHeat(e.target.checked));
+document.getElementById('markToggle').addEventListener('change', e => document.body.classList.toggle('nomark', !e.target.checked));
+applyHeat(true);
+</script>
+</body>
+</html>
