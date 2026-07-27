@@ -1,7 +1,8 @@
 
 ## Gemma 3 Visual NLA Inference
 
-This is a light adapter around [nla-inference](https://github.com/kitft/nla-inference) for image NLA inference with Gemma3
+This is a light adapter around [nla-inference](https://github.com/kitft/nla-inference) for image NLA inference with Gemma3.
+
 The orginal NLA was trained on text so the explanations are kinda jank and hallucinated, but quite fun to look at. 
 ![cool image of pond](pond.png)
 
